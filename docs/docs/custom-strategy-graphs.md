@@ -142,6 +142,113 @@ You can transform the output before passing it to the target node by using the `
     ```
     <!--- KNIT exampleCustomStrategyGraphsJava02.java -->
 
+#### Sequential node chaining
+
+When a sequence of nodes passes data straight through without any branching or transformation,
+you can use the `then` infix operator instead of writing one `edge` declaration per transition.
+`then` creates an unconditional edge from the receiver node to the argument node and returns the
+argument node, so multiple calls can be chained in a single left-to-right expression:
+
+```kotlin
+nodeStart then nodeA then nodeB then nodeFinish
+```
+
+This is exactly equivalent to:
+
+```kotlin
+edge(nodeStart forwardTo nodeA)
+edge(nodeA forwardTo nodeB)
+edge(nodeB forwardTo nodeFinish)
+```
+
+!!! note
+    The `then` operator is available in Kotlin only.
+    In Java, use `strategy.edge(sourceNode, targetNode)` for every connection.
+
+**Why use `then`?**
+
+- **Less boilerplate.** One expression replaces one `edge(... forwardTo ...)` call per hop. The
+  benefit grows quickly in longer pipelines.
+- **Reads in execution order.** The left-to-right direction of the chain mirrors the actual
+  runtime flow, so the code is easier to understand at a glance.
+- **Fewer argument-order mistakes.** The explicit `edge(A forwardTo B)` form requires you to put
+  source and target in the correct positions every time; `then` makes the direction unambiguous.
+- **Works with subgraphs.** You can mix regular nodes and subgraph delegates in the same chain.
+
+The `then` operator is well suited for preprocessing pipelines, post-processing steps, and any
+other fixed sequence where every transition is unconditional. When a step does require a condition,
+use `edge()` only for that transition; surrounding unconditional steps can still use `then`.
+
+The following example shows a preprocessing pipeline that validates and normalizes a string before
+passing it to the LLM, and then handles the usual conditional branching for tool calls:
+
+<!--- INCLUDE
+import ai.koog.agents.core.dsl.builder.forwardTo
+import ai.koog.agents.core.dsl.builder.strategy
+import ai.koog.agents.core.dsl.builder.node
+import ai.koog.agents.core.dsl.extension.nodeExecuteTool
+import ai.koog.agents.core.dsl.extension.nodeLLMRequest
+import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResult
+import ai.koog.agents.core.dsl.extension.onAssistantMessage
+import ai.koog.agents.core.dsl.extension.onToolCall
+-->
+```kotlin
+val myStrategy = strategy<String, String>("preprocess-and-respond") {
+    val validateInput by node<String, String> { input ->
+        require(input.isNotBlank()) { "Input must not be blank" }
+        input.trim()
+    }
+    val normalizeInput by node<String, String> { input ->
+        input.lowercase()
+    }
+    val callLLM by nodeLLMRequest()
+    val executeTool by nodeExecuteTool()
+    val sendToolResult by nodeLLMSendToolResult()
+
+    // Unconditional preprocessing pipeline expressed as a single chain
+    nodeStart then validateInput then normalizeInput then callLLM
+
+    // Branching still uses edge() because conditions are required here
+    edge(callLLM forwardTo nodeFinish onAssistantMessage { true })
+    edge(callLLM forwardTo executeTool onToolCall { true })
+
+    // The tool-result loop is also unconditional, so then works here too
+    executeTool then sendToolResult
+    edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
+    edge(sendToolResult forwardTo executeTool onToolCall { true })
+}
+```
+<!--- KNIT example-custom-strategy-graphs-12.kt -->
+
+The same technique applies inside subgraphs. The `then` operator chains nodes within the subgraph
+scope in exactly the same way:
+
+<!--- INCLUDE
+import ai.koog.agents.core.dsl.builder.strategy
+import ai.koog.agents.core.dsl.builder.node
+import ai.koog.agents.core.dsl.builder.subgraph
+-->
+```kotlin
+val myStrategy = strategy<String, String>("pipeline") {
+    val preprocess by subgraph<String, String>("preprocess") {
+        val clean by node<String, String> { it.trim() }
+        val validate by node<String, String> { input ->
+            require(input.isNotBlank()) { "Input must not be blank" }
+            input
+        }
+        nodeStart then clean then validate then nodeFinish
+    }
+
+    val postprocess by subgraph<String, String>("postprocess") {
+        val format by node<String, String> { it.uppercase() }
+        nodeStart then format then nodeFinish
+    }
+
+    nodeStart then preprocess then postprocess then nodeFinish
+}
+```
+<!--- KNIT example-custom-strategy-graphs-13.kt -->
+
 ### Subgraphs
 
 Subgraphs are sections of the strategy graph that operate with their own set of tools and context.
@@ -300,10 +407,10 @@ Here is an example of a basic strategy graph:
         val executeToolCall by nodeExecuteTool()
         val sendToolResult by nodeLLMSendToolResult()
     
-        edge(nodeStart forwardTo nodeCallLLM)
+        nodeStart then nodeCallLLM
         edge(nodeCallLLM forwardTo nodeFinish onAssistantMessage { true })
         edge(nodeCallLLM forwardTo executeToolCall onToolCall { true })
-        edge(executeToolCall forwardTo sendToolResult)
+        executeToolCall then sendToolResult
         edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
         edge(sendToolResult forwardTo executeToolCall onToolCall { true })
     }
@@ -392,10 +499,10 @@ For the graph created in the previous example, you can run:
             val nodeCallLLM by nodeLLMRequest()
             val executeToolCall by nodeExecuteTool()
             val sendToolResult by nodeLLMSendToolResult()
-            edge(nodeStart forwardTo nodeCallLLM)
+            nodeStart then nodeCallLLM
             edge(nodeCallLLM forwardTo nodeFinish onAssistantMessage { true })
             edge(nodeCallLLM forwardTo executeToolCall onToolCall { true })
-            edge(executeToolCall forwardTo sendToolResult)
+            executeToolCall then sendToolResult
             edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
             edge(sendToolResult forwardTo executeToolCall onToolCall { true })
         }
@@ -482,8 +589,7 @@ val strategy = strategy<String, String>("strategy_name") {
 val executeMultipleTools by nodeExecuteMultipleTools()
 val processMultipleResults by nodeLLMSendMultipleToolResults()
 
-edge(someNode forwardTo executeMultipleTools)
-edge(executeMultipleTools forwardTo processMultipleResults)
+someNode then executeMultipleTools then processMultipleResults
 ```
 <!--- KNIT example-custom-strategy-graphs-07.kt -->
 
