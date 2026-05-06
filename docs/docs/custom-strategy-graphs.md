@@ -407,10 +407,10 @@ Here is an example of a basic strategy graph:
         val executeToolCall by nodeExecuteTool()
         val sendToolResult by nodeLLMSendToolResult()
     
-        edge(nodeStart forwardTo nodeCallLLM)
+        nodeStart then nodeCallLLM
         edge(nodeCallLLM forwardTo nodeFinish onAssistantMessage { true })
         edge(nodeCallLLM forwardTo executeToolCall onToolCall { true })
-        edge(executeToolCall forwardTo sendToolResult)
+        executeToolCall then sendToolResult
         edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
         edge(sendToolResult forwardTo executeToolCall onToolCall { true })
     }
@@ -499,10 +499,10 @@ For the graph created in the previous example, you can run:
             val nodeCallLLM by nodeLLMRequest()
             val executeToolCall by nodeExecuteTool()
             val sendToolResult by nodeLLMSendToolResult()
-            edge(nodeStart forwardTo nodeCallLLM)
+            nodeStart then nodeCallLLM
             edge(nodeCallLLM forwardTo nodeFinish onAssistantMessage { true })
             edge(nodeCallLLM forwardTo executeToolCall onToolCall { true })
-            edge(executeToolCall forwardTo sendToolResult)
+            executeToolCall then sendToolResult
             edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
             edge(sendToolResult forwardTo executeToolCall onToolCall { true })
         }
@@ -589,8 +589,7 @@ val strategy = strategy<String, String>("strategy_name") {
 val executeMultipleTools by nodeExecuteMultipleTools()
 val processMultipleResults by nodeLLMSendMultipleToolResults()
 
-edge(someNode forwardTo executeMultipleTools)
-edge(executeMultipleTools forwardTo processMultipleResults)
+someNode then executeMultipleTools then processMultipleResults
 ```
 <!--- KNIT example-custom-strategy-graphs-07.kt -->
 
